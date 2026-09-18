@@ -125,8 +125,6 @@ final class ImageUtils {
       image = UIImage(contentsOfFile: path)
     }
     
-    NSLog("CNTB_DEBUG2 loadFlutterAsset %@ img=%@ hasAlpha=%d", assetPath, String(describing: image), image?.cgImage?.alphaInfo.rawValue ?? -1)
-
     // Apply tinting if color is provided
     if let img = image, let col = color, #available(iOS 13.0, *) {
       let targetSize = size ?? img.size
@@ -200,14 +198,14 @@ final class ImageUtils {
   
   // MARK: - Image Tinting
   
-  /// Applies a color tint to an image using mask-based approach
+  /// Applies a color tint to an image via its alpha channel (RGB ignored).
   /// - Parameters:
   ///   - image: Source image to tint
   ///   - color: Color to apply
   ///   - size: Target size for the tinted image (defaults to original size)
-  ///   - isSVG: Whether the image is SVG (affects coordinate transformation)
+  ///   - isSVG: Unused; kept for source compatibility with existing callers
   ///   - scale: Image scale (defaults to source image scale)
-  /// - Returns: Tinted UIImage or original image if tinting fails
+  /// - Returns: Tinted UIImage
   @available(iOS 13.0, *)
   static func tintImage(
     _ image: UIImage,
@@ -219,40 +217,30 @@ final class ImageUtils {
     let targetSize = size ?? image.size
     let imageScale = scale ?? image.scale
 
-    // Recolor via the source's ALPHA channel only, ignoring its own RGB —
-    // correct for both single-colour glyphs and multi-colour art alike,
-    // since only the shape (alpha) is kept and every visible pixel is
-    // repainted with `color`.
-    //
-    // `CGContext.clip(to:mask:)` requires a genuine mask CGImage (grayscale
-    // alpha-only); feeding it a full-colour RGBA CGImage is undefined and
-    // silently produced a black fill on-device — the tint colour got lost
-    // entirely, which is why this used to render every unselected icon as
-    // solid black regardless of `color`. `.destinationIn` is the standard,
-    // always-correct alpha-mask recipe: draw the solid colour, then keep
-    // only the pixels where the source image had alpha.
-    let renderer = UIGraphicsImageRenderer(size: targetSize, format: {
+    // Resize first if needed (withTintColor keeps the source's own size).
+    let sized: UIImage
+    if image.size == targetSize {
+      sized = image
+    } else {
       let format = UIGraphicsImageRendererFormat()
       format.scale = imageScale
       format.opaque = false
-      return format
-    }())
-
-    return renderer.image { rendererContext in
-      let context = rendererContext.cgContext
-      let rect = CGRect(origin: .zero, size: targetSize)
-
-      context.setFillColor(color.cgColor)
-      context.fill(rect)
-
-      context.setBlendMode(.destinationIn)
-      // UIKit's coordinate space is already top-left origin here (unlike
-      // raw CGContext), so draw the source image directly with UIImage's
-      // own `draw(in:)` — correct for both SVGKit output and PNG/JPG alike,
-      // no manual flip needed.
-      image.draw(in: rect)
-      context.setBlendMode(.normal)
+      sized = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+        image.draw(in: CGRect(origin: .zero, size: targetSize))
+      }
     }
+
+    // `.alwaysTemplate` + `withTintColor` is UIKit's own built-in recoloring
+    // path: it always uses the image's ALPHA channel only, ignoring its RGB,
+    // regardless of how the bitmap was produced (SVGKit, PNG, JPG). This
+    // replaced a hand-rolled `CGContext.clip(to:mask:)` approach that fed a
+    // full-colour RGBA CGImage as the `mask:` — that API requires a genuine
+    // grayscale/alpha mask, and passing RGBA data there is undefined; it
+    // silently rendered every unselected icon as solid black on-device,
+    // regardless of the requested tint colour.
+    return sized
+      .withRenderingMode(.alwaysTemplate)
+      .withTintColor(color, renderingMode: .alwaysOriginal)
   }
   
   // MARK: - Complete Image Loading with Tinting
