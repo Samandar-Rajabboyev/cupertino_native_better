@@ -125,16 +125,18 @@ final class ImageUtils {
       image = UIImage(contentsOfFile: path)
     }
     
+    NSLog("CNTB_DEBUG2 loadFlutterAsset %@ img=%@ hasAlpha=%d", assetPath, String(describing: image), image?.cgImage?.alphaInfo.rawValue ?? -1)
+
     // Apply tinting if color is provided
     if let img = image, let col = color, #available(iOS 13.0, *) {
       let targetSize = size ?? img.size
       let isSVG = detectedFormat == "svg"
       return tintImage(img, with: col, size: targetSize, isSVG: isSVG, scale: scale)
     }
-    
+
     return image
   }
-  
+
   /// Creates an image from raw data with format detection and optional tinting
   /// - Parameters:
   ///   - data: Image data bytes
