@@ -1116,11 +1116,22 @@ channel.setMethodCallHandler { [weak self] call, result in
 
   // MARK: - Appearance helpers
 
-  /// Builds a UITabBarAppearance with transparent background and optional custom label font.
+  /// Builds a UITabBarAppearance and optional custom label font.
+  ///
+  /// iOS 26+: uses the default background so UIKit renders its native
+  /// Liquid Glass material (the frosted, gradient-blurred bar background
+  /// seen in system apps) instead of a flat transparent bar. iOS < 26
+  /// keeps the transparent background — Flutter draws its own blur/glass
+  /// behind the bar there (see `_GlassPill`), since pre-26 has no system
+  /// Liquid Glass to fall back on.
   @available(iOS 13.0, *)
   private func makeAppearance() -> UITabBarAppearance {
     let ap = UITabBarAppearance()
-    ap.configureWithTransparentBackground()
+    if #available(iOS 26.0, *) {
+      ap.configureWithDefaultBackground()
+    } else {
+      ap.configureWithTransparentBackground()
+    }
     ap.shadowColor = .clear
     ap.shadowImage = UIImage()
     applyLabelFont(to: ap)
