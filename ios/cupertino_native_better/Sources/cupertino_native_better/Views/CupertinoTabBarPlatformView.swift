@@ -144,6 +144,7 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
         // Extract size for this item from sizes array
         let imgSize: CGSize? = (i < sizes.count) ? sizes[i].flatMap { $0.doubleValue > 0 ? CGSize(width: $0.doubleValue, height: $0.doubleValue) : nil } : nil
         let itemColor: UIColor? = (i < colors.count) ? colors[i] : nil
+        NSLog("CNTB_DEBUG i=%d colors.count=%d itemColor=%@ imageAssetPaths[i]=%@", i, colors.count, String(describing: itemColor), (i < imageAssetPaths.count ? imageAssetPaths[i] : "N/A"))
 
         // Priority: imageAsset > customIconBytes > SF Symbol
         // Unselected image
@@ -151,6 +152,7 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
           image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: iconScale, size: imgSize, color: itemColor)
         } else if i < imageAssetPaths.count && !imageAssetPaths[i].isEmpty {
           image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize, color: itemColor)
+          NSLog("CNTB_DEBUG i=%d loaded image renderingMode=%d size=%@", i, image?.renderingMode.rawValue ?? -1, String(describing: image?.size))
         } else if i < customIconBytes.count, let data = customIconBytes[i] {
           image = UIImage(data: data, scale: self.iconScale)?.withRenderingMode(.alwaysTemplate)
         } else if i < symbols.count && !symbols[i].isEmpty {
