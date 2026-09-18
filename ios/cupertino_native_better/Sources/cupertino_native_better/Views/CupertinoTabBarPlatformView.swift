@@ -24,6 +24,7 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
   private var currentActiveImageAssetData: [Data?] = []
   private var currentImageAssetFormats: [String] = []
   private var currentActiveImageAssetFormats: [String] = []
+  private var currentColors: [UIColor?] = []
   private var iconScale: CGFloat = UIScreen.main.scale
   private var leftInsetVal: CGFloat = 0
   private var rightInsetVal: CGFloat = 0
@@ -50,7 +51,9 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
     var activeImageAssetFormats: [String] = []
     var iconScale: CGFloat = UIScreen.main.scale
     var sizes: [NSNumber?] = []
-    var colors: [NSNumber] = [] // ignored; use tintColor
+    // Per-item unselected tint for imageAsset icons (CNImageAsset.color).
+    // Selected icons and SF Symbols continue to use tabBar.tintColor.
+    var colors: [UIColor?] = []
     var selectedIndex: Int = 0
     var isDark: Bool = false
     var tint: UIColor? = nil
@@ -85,7 +88,8 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
         iconScale = CGFloat(truncating: scale)
       }
       sizes = (dict["sfSymbolSizes"] as? [NSNumber?]) ?? []
-      colors = (dict["sfSymbolColors"] as? [NSNumber]) ?? []
+      let rawColors = (dict["sfSymbolColors"] as? [NSNumber?]) ?? []
+      colors = rawColors.map { $0.map { Self.colorFromARGB($0.intValue) } }
       if let v = dict["selectedIndex"] as? NSNumber { selectedIndex = v.intValue }
       if let v = dict["isDark"] as? NSNumber { isDark = v.boolValue }
       if let style = dict["style"] as? [String: Any] {
@@ -139,13 +143,14 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
 
         // Extract size for this item from sizes array
         let imgSize: CGSize? = (i < sizes.count) ? sizes[i].flatMap { $0.doubleValue > 0 ? CGSize(width: $0.doubleValue, height: $0.doubleValue) : nil } : nil
+        let itemColor: UIColor? = (i < colors.count) ? colors[i] : nil
 
         // Priority: imageAsset > customIconBytes > SF Symbol
         // Unselected image
         if i < imageAssetData.count, let data = imageAssetData[i] {
-          image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: iconScale, size: imgSize)
+          image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: iconScale, size: imgSize, color: itemColor)
         } else if i < imageAssetPaths.count && !imageAssetPaths[i].isEmpty {
-          image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize)
+          image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize, color: itemColor)
         } else if i < customIconBytes.count, let data = customIconBytes[i] {
           image = UIImage(data: data, scale: self.iconScale)?.withRenderingMode(.alwaysTemplate)
         } else if i < symbols.count && !symbols[i].isEmpty {
@@ -416,6 +421,7 @@ class CupertinoTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelega
     self.currentActiveImageAssetData = activeImageAssetData
     self.currentImageAssetFormats = imageAssetFormats
     self.currentActiveImageAssetFormats = activeImageAssetFormats
+    self.currentColors = colors
     self.iconScale = iconScale
     self.leftInsetVal = leftInset
     self.rightInsetVal = rightInset
@@ -454,6 +460,8 @@ channel.setMethodCallHandler { [weak self] call, result in
           let activeSymbols = (args["activeSfSymbols"] as? [String]) ?? []
           let badges = (args["badges"] as? [String]) ?? []
           let sizes = (args["sfSymbolSizes"] as? [NSNumber?]) ?? []
+          let rawColors = (args["sfSymbolColors"] as? [NSNumber?]) ?? []
+          let colors: [UIColor?] = rawColors.map { $0.map { Self.colorFromARGB($0.intValue) } }
           var customIconBytes: [Data?] = []
           var activeCustomIconBytes: [Data?] = []
           var imageAssetPaths: [String] = []
@@ -494,6 +502,7 @@ channel.setMethodCallHandler { [weak self] call, result in
           self.currentActiveImageAssetData = activeImageAssetData
           self.currentImageAssetFormats = imageAssetFormats
           self.currentActiveImageAssetFormats = activeImageAssetFormats
+          self.currentColors = colors
           // Store icon sizes for dynamic height calculation
           self.currentIconSizes = sizes.compactMap { $0?.doubleValue }.map { CGFloat($0) }
           func buildItems(_ range: Range<Int>) -> [UITabBarItem] {
@@ -504,13 +513,14 @@ channel.setMethodCallHandler { [weak self] call, result in
 
               // Extract size for this item from sizes array
               let imgSize: CGSize? = (i < sizes.count) ? sizes[i].flatMap { $0.doubleValue > 0 ? CGSize(width: $0.doubleValue, height: $0.doubleValue) : nil } : nil
+              let itemColor: UIColor? = (i < colors.count) ? colors[i] : nil
 
               // Priority: imageAsset > customIconBytes > SF Symbol
               // Unselected image
               if i < imageAssetData.count, let data = imageAssetData[i] {
-                image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: self.iconScale, size: imgSize)
+                image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: self.iconScale, size: imgSize, color: itemColor)
               } else if i < imageAssetPaths.count && !imageAssetPaths[i].isEmpty {
-                image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize)
+                image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize, color: itemColor)
               } else if i < customIconBytes.count, let data = customIconBytes[i] {
                 image = UIImage(data: data, scale: self.iconScale)?.withRenderingMode(.alwaysTemplate)
               } else if i < symbols.count && !symbols[i].isEmpty {
@@ -603,6 +613,7 @@ channel.setMethodCallHandler { [weak self] call, result in
           let activeImageAssetData = self.currentActiveImageAssetData
           let imageAssetFormats = self.currentImageAssetFormats
           let activeImageAssetFormats = self.currentActiveImageAssetFormats
+          let colors = self.currentColors
           let appearance: UITabBarAppearance? = {
             if #available(iOS 13.0, *) { return self.makeAppearance() }
             return nil
@@ -616,13 +627,14 @@ channel.setMethodCallHandler { [weak self] call, result in
 
               // Extract size for this item from stored icon sizes
               let imgSize: CGSize? = (i < iconSizes.count && iconSizes[i] > 0) ? CGSize(width: iconSizes[i], height: iconSizes[i]) : nil
+              let itemColor: UIColor? = (i < colors.count) ? colors[i] : nil
 
               // Priority: imageAsset > customIconBytes > SF Symbol
               // Unselected image
               if i < imageAssetData.count, let data = imageAssetData[i] {
-                image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: self.iconScale, size: imgSize)
+                image = Self.createImageFromData(data, format: (i < imageAssetFormats.count) ? imageAssetFormats[i] : nil, scale: self.iconScale, size: imgSize, color: itemColor)
               } else if i < imageAssetPaths.count && !imageAssetPaths[i].isEmpty {
-                image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize)
+                image = Self.loadFlutterAsset(imageAssetPaths[i], size: imgSize, color: itemColor)
               } else if i < customIconBytes.count, let data = customIconBytes[i] {
                 image = UIImage(data: data, scale: self.iconScale)?.withRenderingMode(.alwaysTemplate)
               } else if i < symbols.count && !symbols[i].isEmpty {
@@ -926,6 +938,45 @@ channel.setMethodCallHandler { [weak self] call, result in
           }
           result(nil)
         } else { result(FlutterError(code: "bad_args", message: "Missing badges", details: nil)) }
+      case "setColors":
+        // Lightweight per-item unselected-icon-color update (e.g. on theme /
+        // dark-mode change) without rebuilding items from scratch. Only
+        // imageAsset-backed unselected icons are affected — SF Symbols and
+        // selected icons continue to follow tabBar.tintColor.
+        if let args = call.arguments as? [String: Any] {
+          let rawColors = (args["sfSymbolColors"] as? [NSNumber?]) ?? []
+          let colors: [UIColor?] = rawColors.map { $0.map { Self.colorFromARGB($0.intValue) } }
+          self.currentColors = colors
+
+          func rebuildImage(at i: Int) -> UIImage? {
+            let imgSize: CGSize? = (i < self.currentIconSizes.count && self.currentIconSizes[i] > 0)
+              ? CGSize(width: self.currentIconSizes[i], height: self.currentIconSizes[i]) : nil
+            let itemColor: UIColor? = (i < colors.count) ? colors[i] : nil
+            if i < self.currentImageAssetData.count, let data = self.currentImageAssetData[i] {
+              return Self.createImageFromData(data, format: (i < self.currentImageAssetFormats.count) ? self.currentImageAssetFormats[i] : nil, scale: self.iconScale, size: imgSize, color: itemColor)
+            } else if i < self.currentImageAssetPaths.count && !self.currentImageAssetPaths[i].isEmpty {
+              return Self.loadFlutterAsset(self.currentImageAssetPaths[i], size: imgSize, color: itemColor)
+            }
+            return nil
+          }
+
+          if let bar = self.tabBar, let items = bar.items {
+            for i in 0..<items.count {
+              if let img = rebuildImage(at: i) { items[i].image = img }
+            }
+          }
+          if let left = self.tabBarLeft, let leftItems = left.items,
+             let right = self.tabBarRight, let rightItems = right.items {
+            let leftEnd = leftItems.count
+            for i in 0..<leftItems.count {
+              if let img = rebuildImage(at: i) { leftItems[i].image = img }
+            }
+            for i in 0..<rightItems.count {
+              if let img = rebuildImage(at: leftEnd + i) { rightItems[i].image = img }
+            }
+          }
+          result(nil)
+        } else { result(FlutterError(code: "bad_args", message: "Missing sfSymbolColors", details: nil)) }
       case "setFont":
         // Update label font and re-apply appearance to all tab bars
         if let args = call.arguments as? [String: Any] {
@@ -1117,12 +1168,12 @@ channel.setMethodCallHandler { [weak self] call, result in
     return ImageUtils.colorFromARGB(argb)
   }
 
-  private static func loadFlutterAsset(_ assetPath: String, size: CGSize? = nil) -> UIImage? {
-    return ImageUtils.loadFlutterAsset(assetPath, size: size)
+  private static func loadFlutterAsset(_ assetPath: String, size: CGSize? = nil, color: UIColor? = nil) -> UIImage? {
+    return ImageUtils.loadFlutterAsset(assetPath, size: size, color: color)
   }
 
-  private static func createImageFromData(_ data: Data, format: String?, scale: CGFloat, size: CGSize? = nil) -> UIImage? {
-    return ImageUtils.createImageFromData(data, format: format, size: size, scale: scale)
+  private static func createImageFromData(_ data: Data, format: String?, scale: CGFloat, size: CGSize? = nil, color: UIColor? = nil) -> UIImage? {
+    return ImageUtils.createImageFromData(data, format: format, size: size, color: color, scale: scale)
   }
 
 }

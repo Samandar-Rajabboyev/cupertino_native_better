@@ -284,6 +284,7 @@ class _CNTabBarState extends State<CNTabBar> {
   List<String>? _lastSymbols;
   List<String>? _lastActiveSymbols;
   List<String>? _lastBadges;
+  List<int?>? _lastColors;
   bool? _lastSplit;
   int? _lastRightCount;
   double? _lastSplitSpacing;
@@ -982,6 +983,12 @@ class _CNTabBarState extends State<CNTabBar> {
           .map((e) => e.activeIcon?.name ?? e.icon?.name ?? '')
           .toList();
       final badges = widget.items.map((e) => e.badge ?? '').toList();
+      final colors = widget.items
+          .map(
+            (e) =>
+                resolveColorToArgb(e.icon?.color ?? e.imageAsset?.color, context),
+          )
+          .toList();
 
       // Fast path: if ONLY badges changed, use lightweight setBadges method
       final badgesChanged = _lastBadges?.join('|') != badges.join('|');
@@ -989,14 +996,31 @@ class _CNTabBarState extends State<CNTabBar> {
       final symbolsChanged = _lastSymbols?.join('|') != symbols.join('|');
       final activeSymbolsChanged =
           _lastActiveSymbols?.join('|') != activeSymbols.join('|');
+      final colorsChanged = _lastColors == null
+          ? colors.any((c) => c != null)
+          : !_listEquals(_lastColors!, colors);
 
       if (badgesChanged &&
           !labelsChanged &&
           !symbolsChanged &&
-          !activeSymbolsChanged) {
+          !activeSymbolsChanged &&
+          !colorsChanged) {
         // Only badges changed - use lightweight update
         await ch.invokeMethod('setBadges', {'badges': badges});
         _lastBadges = badges;
+        return;
+      }
+
+      // Fast path: if ONLY per-item unselected icon colors changed (e.g. a
+      // theme/dark-mode switch recomputing CNImageAsset.color), avoid a full
+      // items rebuild and just re-tint the existing images natively.
+      if (colorsChanged &&
+          !labelsChanged &&
+          !symbolsChanged &&
+          !activeSymbolsChanged &&
+          !badgesChanged) {
+        await ch.invokeMethod('setColors', {'sfSymbolColors': colors});
+        _lastColors = colors;
         return;
       }
 
@@ -1072,11 +1096,13 @@ class _CNTabBarState extends State<CNTabBar> {
           'iconScale': iconScale,
           'selectedIndex': widget.currentIndex,
           'sfSymbolSizes': sizes,
+          'sfSymbolColors': colors,
         });
         _lastLabels = labels;
         _lastSymbols = symbols;
         _lastActiveSymbols = activeSymbols;
         _lastBadges = badges;
+        _lastColors = colors;
         _lastIconSize = widget.iconSize;
         // Re-measure width in case content changed
         _requestIntrinsicSize();
@@ -1144,7 +1170,21 @@ class _CNTabBarState extends State<CNTabBar> {
         .map((e) => e.activeIcon?.name ?? e.icon?.name ?? '')
         .toList();
     _lastBadges = widget.items.map((e) => e.badge ?? '').toList();
+    _lastColors = widget.items
+        .map(
+          (e) =>
+              resolveColorToArgb(e.icon?.color ?? e.imageAsset?.color, context),
+        )
+        .toList();
     // Note: Custom icon bytes are cached in _syncPropsToNativeIfNeeded when rendered
+  }
+
+  static bool _listEquals(List<int?> a, List<int?> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   Future<void> _requestIntrinsicSize() async {
