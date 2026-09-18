@@ -214,57 +214,43 @@ final class ImageUtils {
     isSVG: Bool = false,
     scale: CGFloat? = nil
   ) -> UIImage? {
-    guard let cgImage = image.cgImage else {
-      return image
-    }
-    
-    let cgColor = color.cgColor
-    
     let targetSize = size ?? image.size
     let imageScale = scale ?? image.scale
-    
-    // Scale image to target size first if needed
-    var scaledCGImage: CGImage? = nil
-    if image.size == targetSize {
-      scaledCGImage = cgImage
-    } else {
-      UIGraphicsBeginImageContextWithOptions(targetSize, false, imageScale)
-      defer { UIGraphicsEndImageContext() }
-      // Use UIImage.draw(in:) which handles coordinate system correctly
-      image.draw(in: CGRect(origin: .zero, size: targetSize))
-      scaledCGImage = UIGraphicsGetImageFromCurrentImageContext()?.cgImage
+
+    // Recolor via the source's ALPHA channel only, ignoring its own RGB —
+    // correct for both single-colour glyphs and multi-colour art alike,
+    // since only the shape (alpha) is kept and every visible pixel is
+    // repainted with `color`.
+    //
+    // `CGContext.clip(to:mask:)` requires a genuine mask CGImage (grayscale
+    // alpha-only); feeding it a full-colour RGBA CGImage is undefined and
+    // silently produced a black fill on-device — the tint colour got lost
+    // entirely, which is why this used to render every unselected icon as
+    // solid black regardless of `color`. `.destinationIn` is the standard,
+    // always-correct alpha-mask recipe: draw the solid colour, then keep
+    // only the pixels where the source image had alpha.
+    let renderer = UIGraphicsImageRenderer(size: targetSize, format: {
+      let format = UIGraphicsImageRendererFormat()
+      format.scale = imageScale
+      format.opaque = false
+      return format
+    }())
+
+    return renderer.image { rendererContext in
+      let context = rendererContext.cgContext
+      let rect = CGRect(origin: .zero, size: targetSize)
+
+      context.setFillColor(color.cgColor)
+      context.fill(rect)
+
+      context.setBlendMode(.destinationIn)
+      // UIKit's coordinate space is already top-left origin here (unlike
+      // raw CGContext), so draw the source image directly with UIImage's
+      // own `draw(in:)` — correct for both SVGKit output and PNG/JPG alike,
+      // no manual flip needed.
+      image.draw(in: rect)
+      context.setBlendMode(.normal)
     }
-    
-    guard let scaledImage = scaledCGImage else {
-      return image
-    }
-    
-    // Apply color tint using mask
-    UIGraphicsBeginImageContextWithOptions(targetSize, false, imageScale)
-    defer { UIGraphicsEndImageContext() }
-    
-    guard let context = UIGraphicsGetCurrentContext() else {
-      return image
-    }
-    
-    // Core Graphics uses bottom-left origin, but masks need to be flipped for UIKit (top-left origin)
-    // SVG images from SVGKit are already flipped, so we need to flip them back
-    // PNG/JPG images are correctly oriented, so we need to flip them for the mask
-    if isSVG {
-      // SVG: SVGKit renders with flipped coordinates, so we flip back
-      context.translateBy(x: 0, y: targetSize.height)
-      context.scaleBy(x: 1.0, y: -1.0)
-    } else {
-      // PNG/JPG: Need to flip for mask (Core Graphics uses bottom-left origin)
-      context.translateBy(x: 0, y: targetSize.height)
-      context.scaleBy(x: 1.0, y: -1.0)
-    }
-    
-    context.clip(to: CGRect(origin: .zero, size: targetSize), mask: scaledImage)
-    context.setFillColor(cgColor)
-    context.fill(CGRect(origin: .zero, size: targetSize))
-    
-    return UIGraphicsGetImageFromCurrentImageContext() ?? image
   }
   
   // MARK: - Complete Image Loading with Tinting
